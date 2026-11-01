@@ -9,6 +9,9 @@
 START=99
 STOP=10
 
+EXTRA_COMMANDS="status"
+EXTRA_HELP="	status	Show the kernel NAT table"
+
 CONF=/etc/s0cks5-nat.conf
 TABLE=s0cks5nat
 
