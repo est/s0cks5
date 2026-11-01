@@ -50,7 +50,7 @@ Server: Python 3 and the standard library. Router endpoint: `socat` or
 SERVER_IP=203.0.113.10 SERVER_PORT=1080 ./scripts/build.sh
 # build/s0cks5.o; bpfel is the default, use BPF_TARGET=bpfeb for big-endian
 
-scp build/s0cks5.o scripts/openwrt-attach.sh root@192.0.2.10:
+scp build/s0cks5.o scripts/openwrt-attach.sh scripts/openwrt-detach.sh root@192.0.2.10:
 ssh root@192.0.2.10 './openwrt-attach.sh wan ./s0cks5.o'
 ```
 
