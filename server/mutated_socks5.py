@@ -120,8 +120,11 @@ def map_connect_error(exc: BaseException) -> int:
         return REP_HOST_UNREACHABLE
     if isinstance(exc, TimeoutError):
         return REP_HOST_UNREACHABLE
-    if isinstance(exc, OSError) and exc.errno in (errno.ENETUNREACH, errno.EHOSTUNREACH):
-        return REP_NETWORK_UNREACHABLE
+    if isinstance(exc, OSError):
+        if exc.errno == errno.ENETUNREACH:
+            return REP_NETWORK_UNREACHABLE
+        if exc.errno == errno.EHOSTUNREACH:
+            return REP_HOST_UNREACHABLE
     return REP_GENERAL
 
 
@@ -163,7 +166,7 @@ def handle_client(client: socket.socket, peer: tuple, allow_plain: bool) -> None
 
         try:
             upstream = socket.create_connection((host, port), timeout=10)
-        except BaseException as exc:  # noqa: BLE001 - turned into a SOCKS reply
+        except OSError as exc:
             LOG.warning("%s: connect %s:%d failed: %s", peer[0], host, port, exc)
             send_reply(client, MUT_VER if mutated else PLAIN_VER, map_connect_error(exc))
             return

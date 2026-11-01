@@ -15,7 +15,7 @@ Victims may include:
 
 An unmodified client behind the OpenWrt box keeps speaking normal SOCKS5.
 The router's `tc`/eBPF program rewrites the two client control messages on
-the uplink, and rewrites the two server control messages on the way back:
+the uplink, and restores the two server control messages on the way back:
 
 | direction       | normal SOCKS5          | on the wire            |
 | --------------- | ---------------------- | ---------------------- |
@@ -52,6 +52,7 @@ Router (OpenWrt 24.10, `mipsel_24kc` little-endian in the reference setup):
 ```sh
 opkg update
 opkg install tc-bpf kmod-sched-core kmod-sched-bpf
+# or copy scripts/openwrt-setup.sh to the router and run it
 ```
 
 Build host (the server or any Linux box):
@@ -94,15 +95,16 @@ Copy the object to the router and attach it to the uplink port (`wan` in the
 reference setup):
 
 ```sh
-scp build/s0cks5.o root@192.0.2.10:/root/s0cks5.o
-scp scripts/openwrt-attach.sh root@192.0.2.10:/root/
-ssh root@192.0.2.10 '/root/openwrt-attach.sh wan /root/s0cks5.o'
+ROUTER_IP=192.0.2.10   # example only; use your router's address
+scp build/s0cks5.o "root@$ROUTER_IP:/root/s0cks5.o"
+scp scripts/openwrt-attach.sh "root@$ROUTER_IP:/root/"
+ssh "root@$ROUTER_IP" '/root/openwrt-attach.sh wan /root/s0cks5.o'
 ```
 
 Detach with:
 
 ```sh
-ssh root@192.0.2.10 '/root/openwrt-detach.sh wan'
+ssh "root@$ROUTER_IP" '/root/openwrt-detach.sh wan'
 ```
 
 Attach to the interface that actually carries the client traffic. On a
@@ -127,7 +129,9 @@ The client's greeting should appear as `16 02 00 02` for curl (or `16 01 00`
 for a one-method client), and the CONNECT request as `16 01 00 01 ...` (IPv4)
 or `16 01 00 03 ...` (domain). The sequence `05 01 00` should not appear.
 
-Test the server directly without eBPF using the included mutated client:
+Test the server directly, bypassing the router, using the included mutated
+client (run it on the server or another host that is not behind the eBPF
+hook):
 
 ```sh
 python3 tests/mutated_client.py \
