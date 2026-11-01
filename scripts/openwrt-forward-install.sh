@@ -40,7 +40,8 @@ SERVER_ADDR='$SERVER_IP'
 SERVER_PORT='$SERVER_PORT'
 EOF
 
-install -m 0755 "$INIT_SRC" "$INIT_DST"
+cp "$INIT_SRC" "$INIT_DST"
+chmod 0755 "$INIT_DST"
 
 # If a manual socat from an earlier experiment is still holding the port,
 # stop it so procd can bind.  Match only the listener for this port.
