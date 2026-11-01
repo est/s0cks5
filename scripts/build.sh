@@ -6,7 +6,7 @@ set -euo pipefail
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 SERVER_IP=${SERVER_IP:?set SERVER_IP to the SOCKS5 server IPv4 address}
 SERVER_PORT=${SERVER_PORT:-1080}
-BPF_TARGET=${BPF_TARGET:-bpfeb}   # bpfeb for the big-endian MIPS OpenWrt box
+BPF_TARGET=${BPF_TARGET:-bpfel}   # reference box is mipsel_24kc; use bpfeb for BE
 OUT=${OUT:-$ROOT/build/s0cks5.o}
 
 python3 - "$SERVER_IP" <<'PY'

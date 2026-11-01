@@ -1,6 +1,6 @@
 SERVER_IP ?=
 SERVER_PORT ?= 1080
-BPF_TARGET ?= bpfeb
+BPF_TARGET ?= bpfel
 OUT ?= build/s0cks5.o
 
 .PHONY: all bpf check clean

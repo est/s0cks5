@@ -51,7 +51,7 @@ def main() -> int:
     args = parser.parse_args()
 
     with socket.create_connection((args.proxy, args.proxy_port), timeout=args.timeout) as sock:
-        sock.sendall(bytes((0x16, 0x03, 0x00)))
+        sock.sendall(bytes((0x16, 0x01, 0x00)))
         greeting_reply = recv_exact(sock, 2)
         if greeting_reply != bytes((0x16, 0x00)):
             print(f"bad greeting reply: {greeting_reply.hex()}", file=sys.stderr)
@@ -59,7 +59,7 @@ def main() -> int:
 
         atyp, addr = address_field(args.target)
         sock.sendall(
-            bytes((0x16, 0x03, 0x00, atyp))
+            bytes((0x16, 0x01, 0x00, atyp))
             + addr
             + struct.pack("!H", args.target_port)
         )

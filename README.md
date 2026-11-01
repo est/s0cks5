@@ -19,14 +19,16 @@ the uplink, and rewrites the two server control messages on the way back:
 
 | direction       | normal SOCKS5          | on the wire            |
 | --------------- | ---------------------- | ---------------------- |
-| client → server | `05 01 00`             | `16 03 00`             |
-| client → server | `05 01 00 ATYP ...`    | `16 03 00 ATYP ...`    |
+| client → server | `05 NN methods...`     | `16 NN methods...`     |
+| client → server | `05 01 00 ATYP ...`    | `16 01 00 ATYP ...`    |
 | server → client | `05 00`                | `16 00`                |
 | server → client | `05 REP 00 ATYP ...`   | `16 REP 00 ATYP ...`   |
 
 The bytes `05 01 00 03` never appear on the wire. The replacement starts with
-`16 03`, which is the opening of a TLS handshake record, so a dumb signature
-matcher sees something that is at least not the SOCKS5 greeting.
+`16`, which is the opening byte of a TLS handshake record, so a dumb signature
+matcher sees something that is at least not the SOCKS5 greeting. Rewriting
+only the version byte also handles clients that offer more than one auth
+method (curl sends `05 02 00 02`).
 
 The rewrite is **length preserving**, so TCP sequence and acknowledgement
 numbers do not move. No packet splitting, no `bpf_skb_adjust_room`, no
@@ -45,7 +47,7 @@ first two control messages in each direction.
 
 ## Requirements
 
-Router (OpenWrt 24.10, MIPS big-endian in the reference setup):
+Router (OpenWrt 24.10, `mipsel_24kc` little-endian in the reference setup):
 
 ```sh
 opkg update
@@ -71,8 +73,9 @@ SERVER_IP=203.0.113.10 SERVER_PORT=1080 ./scripts/build.sh
 make SERVER_IP=203.0.113.10 SERVER_PORT=1080
 ```
 
-The default target is `bpfeb` because the MT7621 OpenWrt box is big-endian.
-Use `BPF_TARGET=bpfel` for little-endian targets.
+The default target is `bpfel` because the MT7621 OpenWrt box is little-endian
+(`mipsel_24kc`, even though `uname -m` prints `mips`). Use
+`BPF_TARGET=bpfeb` for big-endian targets.
 
 The object is written to `build/s0cks5.o` and is ignored by git.
 
@@ -120,9 +123,9 @@ Watch the wire on the server:
 tcpdump -i eth0 -nn -X 'tcp port 1080'
 ```
 
-The client's greeting should appear as `16 03 00`, and the client's CONNECT
-request as `16 03 00 01 ...` (or `16 03 00 03 ...` for a domain). The sequence
-`05 01 00` should not appear.
+The client's greeting should appear as `16 02 00 02` for curl (or `16 01 00`
+for a one-method client), and the CONNECT request as `16 01 00 01 ...` (IPv4)
+or `16 01 00 03 ...` (domain). The sequence `05 01 00` should not appear.
 
 Test the server directly without eBPF using the included mutated client:
 

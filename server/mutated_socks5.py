@@ -3,9 +3,9 @@
 
 Normal SOCKS5                     This server on the wire
 --------------------------------  ---------------------------------
-client  05 01 00                  client  16 03 00
+client  05 NN methods...          client  16 NN methods...
 server  05 00                     server  16 00
-client  05 01 00 ATYP ...         client  16 03 00 ATYP ...
+client  05 01 00 ATYP ...         client  16 01 00 ATYP ...
 server  05 REP 00 ATYP ...        server  16 REP 00 ATYP ...
 
 The companion tc/eBPF program on the router performs the same translation for
@@ -26,10 +26,8 @@ import sys
 import threading
 
 MUT_VER = 0x16
-MUT_GREETING_METHODS = 0x03
-MUT_CMD = 0x03
 PLAIN_VER = 0x05
-PLAIN_CMD = 0x01
+CMD_CONNECT = 0x01
 
 REP_SUCCESS = 0x00
 REP_GENERAL = 0x01
@@ -133,37 +131,25 @@ def handle_client(client: socket.socket, peer: tuple, allow_plain: bool) -> None
         client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
 
         first = recv_exact(client, 2)
-        if first[0] == MUT_VER and first[1] == MUT_GREETING_METHODS:
-            recv_exact(client, 1)  # original METHOD byte 0x00
-            mutated = True
-            client.sendall(bytes((MUT_VER, 0x00)))
-        elif first[0] == PLAIN_VER and allow_plain:
+        if first[0] == MUT_VER or (first[0] == PLAIN_VER and allow_plain):
+            mutated = first[0] == MUT_VER
             methods = recv_exact(client, first[1]) if first[1] else b""
-            mutated = False
             if 0x00 not in methods:
-                client.sendall(bytes((PLAIN_VER, 0xFF)))
+                client.sendall(bytes((first[0], 0xFF)))
                 return
-            client.sendall(bytes((PLAIN_VER, 0x00)))
+            client.sendall(bytes((first[0], 0x00)))
         else:
             LOG.warning("%s: not a mutated SOCKS5 greeting: %s", peer[0], first.hex())
             return
 
+        expected_ver = MUT_VER if mutated else PLAIN_VER
         header = recv_exact(client, 4)
-        if mutated:
-            if header[0] != MUT_VER or header[2] != 0x00:
-                LOG.warning("%s: bad mutated request header: %s", peer[0], header.hex())
-                return
-            # header[1] is 0x03 on the wire; only CONNECT is implemented.
-            if header[1] != MUT_CMD:
-                send_reply(client, MUT_VER, REP_CMD_NOT_SUPPORTED)
-                return
-        else:
-            if header[0] != PLAIN_VER or header[2] != 0x00:
-                LOG.warning("%s: bad request header: %s", peer[0], header.hex())
-                return
-            if header[1] != PLAIN_CMD:
-                send_reply(client, PLAIN_VER, REP_CMD_NOT_SUPPORTED)
-                return
+        if header[0] != expected_ver or header[2] != 0x00:
+            LOG.warning("%s: bad request header: %s", peer[0], header.hex())
+            return
+        if header[1] != CMD_CONNECT:
+            send_reply(client, expected_ver, REP_CMD_NOT_SUPPORTED)
+            return
 
         atyp = header[3]
         try:

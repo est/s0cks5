@@ -6,12 +6,14 @@
  * configured SOCKS5 server it rewrites the two client control messages and
  * the two server control messages:
  *
- *   client -> server      05 01 00 ...   ->   16 03 00 ...
- *   server -> client      05 00 00 ...   ->   16 00 00 ...
+ *   client -> server      05 NN ...      ->   16 NN ...
+ *   client -> server      05 01 00 ...   ->   16 01 00 ...
+ *   server -> client      05 00 ...      ->   16 00 ...
  *                         05 REP 00 ...  ->   16 REP 00 ...
  *
- * Only the first two control messages in each direction are touched, and the
- * rewrite is length preserving, so TCP sequence/ack numbers never move.
+ * Only the version byte of the first two control messages in each direction
+ * is touched, and the rewrite is length preserving, so TCP sequence/ack
+ * numbers never move.
  */
 #include <linux/bpf.h>
 #include <linux/if_ether.h>
@@ -146,19 +148,21 @@ int s0cks5_mutate(struct __sk_buff *skb)
 		return TC_ACT_OK;
 
 	if (c2s) {
-		/* Only the greeting (05 01 00) and CONNECT request (05 01 00 ATYP). */
-		if (b[0] != 0x05 || b[1] != 0x01)
+		/* Greeting (05 NMETHODS ...) and CONNECT request (05 01 00 ATYP). */
+		if (b[0] != 0x05)
 			return TC_ACT_OK;
 		/* A retransmission of the last control message is still rewritten. */
 		if (st->count >= 2 && tcp.seq != st->last_seq)
 			return TC_ACT_OK;
 
-		__u8 nb[2] = { 0x16, 0x03 };
+		__u8 nb[2] = { 0x16, b[1] };
+		__u16 old = (__u16)((0x05 << 8) | b[1]);
+		__u16 new = (__u16)((0x16 << 8) | b[1]);
 
 		if (bpf_skb_store_bytes(skb, poff, nb, sizeof(nb), 0) < 0)
 			return TC_ACT_OK;
 		bpf_l4_csum_replace(skb, l4off + __builtin_offsetof(struct tcphdr, check),
-				    0x0501, 0x1603, 2);
+				    old, new, 2);
 		if (st->count < 2) {
 			st->count++;
 			st->last_seq = tcp.seq;
