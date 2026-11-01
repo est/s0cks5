@@ -1,0 +1,7 @@
+#!/bin/sh
+# Re-apply the DNAT table when a network interface comes up.  The normal boot
+# path is /etc/init.d/s0cks5-nat (S99); this is a safety net for interface or
+# address changes at runtime.
+[ "$ACTION" = "ifup" ] || exit 0
+[ -x /etc/init.d/s0cks5-nat ] || exit 0
+/etc/init.d/s0cks5-nat restart >/dev/null 2>&1

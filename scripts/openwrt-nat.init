@@ -5,6 +5,10 @@
 # SNAT: only the DNAT'd flow is masqueraded to the router's LAN address so the
 #       server's replies come back through this router, where conntrack
 #       reverses the DNAT.  SNAT alone would not redirect anything.
+#
+# LISTEN_ADDR=any uses "fib daddr type local", so every current/future local
+# IPv4 address (LAN and WAN) is covered without rewriting rules when an
+# address changes.  Set a specific address to restrict the listener.
 
 START=99
 STOP=10
@@ -16,17 +20,13 @@ CONF=/etc/s0cks5-nat.conf
 TABLE=s0cks5nat
 
 start() {
-	LISTEN_ADDR=
+	LISTEN_ADDR=any
 	LISTEN_PORT=1080
 	SERVER_ADDR=
 	SERVER_PORT=1080
 
 	[ -r "$CONF" ] && . "$CONF"
 
-	[ -n "$LISTEN_ADDR" ] || {
-		echo "s0cks5-nat: LISTEN_ADDR is not set in $CONF" >&2
-		return 1
-	}
 	[ -n "$SERVER_ADDR" ] || {
 		echo "s0cks5-nat: SERVER_ADDR is not set in $CONF" >&2
 		return 1
@@ -40,9 +40,15 @@ start() {
 	nft add table ip "$TABLE"
 	nft add chain ip "$TABLE" prerouting \
 		'{ type nat hook prerouting priority -110; policy accept; }'
-	nft add rule ip "$TABLE" prerouting \
-		ip daddr "$LISTEN_ADDR" tcp dport "$LISTEN_PORT" \
-		dnat to "$SERVER_ADDR:$SERVER_PORT"
+	if [ "$LISTEN_ADDR" = "any" ] || [ -z "$LISTEN_ADDR" ]; then
+		nft add rule ip "$TABLE" prerouting \
+			fib daddr type local ip daddr != 127.0.0.0/8 \
+			tcp dport "$LISTEN_PORT" dnat to "$SERVER_ADDR:$SERVER_PORT"
+	else
+		nft add rule ip "$TABLE" prerouting \
+			ip daddr "$LISTEN_ADDR" tcp dport "$LISTEN_PORT" \
+			dnat to "$SERVER_ADDR:$SERVER_PORT"
+	fi
 	nft add chain ip "$TABLE" postrouting \
 		'{ type nat hook postrouting priority 110; policy accept; }'
 	nft add rule ip "$TABLE" postrouting \
@@ -52,6 +58,10 @@ start() {
 
 stop() {
 	nft delete table ip "$TABLE" 2>/dev/null || true
+}
+
+reload() {
+	start
 }
 
 status() {

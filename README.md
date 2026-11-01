@@ -82,12 +82,38 @@ The object is written to `build/s0cks5.o` and is ignored by git.
 
 ## Run the server
 
+Create an allowlist containing the address the VPS will see as the client
+(the router's public egress address), plus loopback for local tests:
+
 ```sh
-python3 server/mutated_socks5.py --bind 0.0.0.0 --port 1080 -v
+sudo install -m 600 /dev/null /etc/s0cks5-allow.txt
+sudo tee /etc/s0cks5-allow.txt >/dev/null <<'EOF'
+203.0.113.10/32
+127.0.0.1/32
+EOF
 ```
 
-Useful options: `--max-conns`, `--backlog`, `--allow-plain` (debug only;
-also accepts ordinary SOCKS5).
+Then:
+
+```sh
+python3 server/mutated_socks5.py --bind 0.0.0.0 --port 1080 \
+    --allow-file /etc/s0cks5-allow.txt -v
+```
+
+The server refuses to start on a non-loopback bind without
+`--allow`/`--allow-file`, so it fails closed. `--allow CIDR` can be used
+instead of a file. `SIGHUP` reloads the allowlist; a bad reload keeps the old
+list rather than opening the service.
+
+Probe handling defaults: 3 s handshake timeout, 8 concurrent connections per
+IP, 60 new connections per minute per IP, and 3 bad handshakes trigger a
+5 minute temporary ban. Non-allowlisted peers and malformed handshakes get a
+TCP RST without a SOCKS reply. Tune with `--handshake-timeout`,
+`--max-per-ip`, `--rate`, `--rate-window`, `--ban-after`, `--ban-time`.
+`--allow-plain` remains debug-only.
+
+The listener deliberately stays up during probes; shutting it down on a
+probe would let any scanner take the service offline.
 
 ## Attach the eBPF program
 
@@ -168,7 +194,8 @@ nft add table ip s0cks5nat
 nft add chain ip s0cks5nat prerouting \
     '{ type nat hook prerouting priority -110; policy accept; }'
 nft add rule ip s0cks5nat prerouting \
-    ip daddr 192.0.2.10 tcp dport 1080 dnat to 203.0.113.10:1080
+    fib daddr type local ip daddr != 127.0.0.0/8 \
+    tcp dport 1080 dnat to 203.0.113.10:1080
 nft add chain ip s0cks5nat postrouting \
     '{ type nat hook postrouting priority 110; policy accept; }'
 nft add rule ip s0cks5nat postrouting \
@@ -179,20 +206,38 @@ The installer packages the same rules as a boot-time service and disables the
 socat forwarder:
 
 ```sh
-scp scripts/openwrt-nat.init scripts/openwrt-nat-install.sh \
-    scripts/openwrt-nat-remove.sh "$ROUTER_USER@$ROUTER_IP:"
+scp scripts/openwrt-nat.init scripts/openwrt-nat.hotplug \
+    scripts/openwrt-nat-install.sh scripts/openwrt-nat-remove.sh \
+    "$ROUTER_USER@$ROUTER_IP:"
 ssh "$ROUTER_USER@$ROUTER_IP" \
     'SERVER_IP=203.0.113.10 SERVER_PORT=1080 \
-     LISTEN_ADDR=192.0.2.10 LISTEN_PORT=1080 \
+     LISTEN_ADDR=any LISTEN_PORT=1080 \
      ./openwrt-nat-install.sh'
 ```
 
+`LISTEN_ADDR=any` (the default) uses `fib daddr type local`, so every current
+and future local IPv4 address — LAN, WAN, aliases, DHCP changes — is covered
+without editing the rule. Pass a specific address instead to restrict it to
+one interface. Because `any` includes a WAN address, use a LAN address or a
+firewall rule if you do not want the proxy reachable from outside.
+
+The installer validates the IP and ports, prints the config it is replacing,
+deletes the current `s0cks5nat` table and the legacy `s0cks5_nat`/`s0cks5`
+names, then writes the new config and restarts the service. Re-run it after a
+VPS or port change; a wrong previous rule is removed first.
+
+The rule sits in `prerouting`, so it covers LAN and WAN clients, but not a
+client running on the router itself; that client should use the VPS address
+directly. NAT support comes from `kmod-nft-nat` (already present on the
+reference box).
+
+The service is enabled as `S99s0cks5-nat`, after the firewall at boot. The
+`ifup` hotplug hook re-applies it when an interface comes up, and `fw4 reload`
+leaves the separate `ip s0cks5nat` table intact. Check it with
+`/etc/init.d/s0cks5-nat status`; `stop`/`start`/`restart`/`reload` work.
+
 Remove it with `./openwrt-nat-remove.sh`, then re-enable socat with
 `/etc/init.d/s0cks5-forward enable && /etc/init.d/s0cks5-forward start`.
-
-The rule sits in `prerouting`, so it covers LAN clients; a client running on
-the router itself should use the VPS address directly. NAT support comes from
-`kmod-nft-nat` (already present on the reference box).
 
 On the reference bridged AP the DNAT'd packet is routed back out `br-lan` to
 the default gateway, but it still leaves through the `wan` port, so the
@@ -202,10 +247,20 @@ socat path remains the portable default.
 
 ## Test
 
-Normal client, through the router:
+Normal client, using the router as the endpoint (or connect to the VPS
+address directly if you did not enable the forwarder/NAT):
 
 ```sh
+curl --socks5-hostname 192.0.2.10:1080 http://example.com/
+# direct:
 curl --socks5-hostname 203.0.113.10:1080 http://example.com/
+```
+
+A quick probe check from a non-allowlisted source should produce no SOCKS
+reply and a reset:
+
+```sh
+printf 'GET / HTTP/1.0\r\n\r\n' | nc -w 1 203.0.113.10 1080
 ```
 
 Watch the wire on the server:
@@ -235,9 +290,11 @@ kernel's TCP stack and the server all see a valid stream.
 
 * This is obfuscation, not encryption or authentication. It defeats a fixed
   byte signature; it does not defeat a determined classifier.
-* The server is an open `CONNECT` proxy with no authentication. Bind it to a
-  trusted interface or firewall it; do not expose it to the public Internet
-  as-is.
+* There is no SOCKS username/password. The security boundary is the server's
+  source allowlist, so keep it narrow and use a host firewall as defense in
+  depth. An allowlisted source is trusted to use the proxy.
+* Probes and malformed handshakes are reset rather than answered, but the
+  listener is not stopped. A probe-triggered shutdown would itself be a DoS.
 * Only the first two control messages per direction are rewritten. A client
   that pipelines greeting + request in one TCP segment, or application data
   that begins with the SOCKS5 signature before the handshake completes, is
