@@ -156,8 +156,9 @@ int s0cks5_mutate(struct __sk_buff *skb)
 			return TC_ACT_OK;
 
 		__u8 nb[2] = { 0x16, b[1] };
-		__u16 old = (__u16)((0x05 << 8) | b[1]);
-		__u16 new = (__u16)((0x16 << 8) | b[1]);
+		/* bpf_l4_csum_replace() wants the word as the CPU reads it. */
+		__u16 old = bpf_ntohs((__u16)((0x05 << 8) | b[1]));
+		__u16 new = bpf_ntohs((__u16)((0x16 << 8) | b[1]));
 
 		if (bpf_skb_store_bytes(skb, poff, nb, sizeof(nb), 0) < 0)
 			return TC_ACT_OK;
@@ -180,8 +181,8 @@ int s0cks5_mutate(struct __sk_buff *skb)
 	if (bpf_skb_store_bytes(skb, poff, &nb, sizeof(nb), 0) < 0)
 		return TC_ACT_OK;
 
-	__u16 old = (__u16)((0x05 << 8) | b[1]);
-	__u16 new = (__u16)((0x16 << 8) | b[1]);
+	__u16 old = bpf_ntohs((__u16)((0x05 << 8) | b[1]));
+	__u16 new = bpf_ntohs((__u16)((0x16 << 8) | b[1]));
 
 	bpf_l4_csum_replace(skb, l4off + __builtin_offsetof(struct tcphdr, check),
 			    old, new, 2);
