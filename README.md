@@ -95,16 +95,17 @@ Copy the object to the router and attach it to the uplink port (`wan` in the
 reference setup):
 
 ```sh
-ROUTER_IP=192.0.2.10   # example only; use your router's address
-scp build/s0cks5.o "root@$ROUTER_IP:/root/s0cks5.o"
-scp scripts/openwrt-attach.sh "root@$ROUTER_IP:/root/"
-ssh "root@$ROUTER_IP" '/root/openwrt-attach.sh wan /root/s0cks5.o'
+ROUTER_USER=root         # example; use your router login
+ROUTER_IP=192.0.2.10     # example; use your router address
+scp build/s0cks5.o "$ROUTER_USER@$ROUTER_IP:s0cks5.o"
+scp scripts/openwrt-attach.sh "$ROUTER_USER@$ROUTER_IP:"
+ssh "$ROUTER_USER@$ROUTER_IP" './openwrt-attach.sh wan ./s0cks5.o'
 ```
 
 Detach with:
 
 ```sh
-ssh "root@$ROUTER_IP" '/root/openwrt-detach.sh wan'
+ssh "$ROUTER_USER@$ROUTER_IP" './openwrt-detach.sh wan'
 ```
 
 Attach to the interface that actually carries the client traffic. On a
