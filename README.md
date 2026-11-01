@@ -146,13 +146,17 @@ kernel's TCP stack and the server all see a valid stream.
 
 * This is obfuscation, not encryption or authentication. It defeats a fixed
   byte signature; it does not defeat a determined classifier.
+* The server is an open `CONNECT` proxy with no authentication. Bind it to a
+  trusted interface or firewall it; do not expose it to the public Internet
+  as-is.
 * Only the first two control messages per direction are rewritten. A client
   that pipelines greeting + request in one TCP segment, or application data
   that begins with the SOCKS5 signature before the handshake completes, is
-  out of scope.
+  out of scope. The first two payload bytes of a control message must arrive
+  in one TCP segment; a one-byte first segment is passed through unmodified.
 * `CONNECT` only, no `BIND`, no `UDP ASSOCIATE`, no username/password.
-* The eBPF program matches on the configured server IPv4 address and port,
-  so unrelated traffic is left alone.
+* The eBPF match is IPv4-only (the server address is configured as IPv4); the
+  proxied target can still be IPv4, IPv6 or a domain name.
 
 ## Ubuntu
 
