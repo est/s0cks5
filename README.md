@@ -146,9 +146,54 @@ connection, and that is the leg the eBPF on `wan` mutates. Keep `LISTEN_ADDR`
 on the LAN address: the forwarder has no authentication. Remove it with
 `./openwrt-forward-remove.sh`.
 
-This is a userspace relay, so throughput is bounded by the router's CPU. A
-kernel-only nftables DNAT/TPROXY setup is possible, but it is more
-configuration for the same lab result.
+This is a userspace relay, so throughput is bounded by the router's CPU.
+
+### Kernel NAT alternative (no socat)
+
+`snat` alone is not enough: SNAT changes the source address, not the
+destination. What redirects the connection is **DNAT**:
+
+```
+client -> 192.0.2.10:1080   --DNAT-->   client -> 203.0.113.10:1080
+```
+
+The return path then needs SNAT/MASQUERADE, otherwise the VPS replies
+directly to the LAN client (or to an unroutable private address) and bypasses
+the router. The rules below only masquerade the DNAT'd flow, using
+`ct status dnat`, so unrelated traffic is untouched:
+
+```sh
+nft add table ip s0cks5nat
+nft add chain ip s0cks5nat prerouting \
+    '{ type nat hook prerouting priority -110; policy accept; }'
+nft add rule ip s0cks5nat prerouting \
+    ip daddr 192.0.2.10 tcp dport 1080 dnat to 203.0.113.10:1080
+nft add chain ip s0cks5nat postrouting \
+    '{ type nat hook postrouting priority 110; policy accept; }'
+nft add rule ip s0cks5nat postrouting \
+    ct status dnat ip daddr 203.0.113.10 tcp dport 1080 masquerade
+```
+
+The installer packages the same rules as a boot-time service and disables the
+socat forwarder:
+
+```sh
+scp scripts/openwrt-nat.init scripts/openwrt-nat-install.sh \
+    scripts/openwrt-nat-remove.sh "$ROUTER_USER@$ROUTER_IP:"
+ssh "$ROUTER_USER@$ROUTER_IP" \
+    'SERVER_IP=203.0.113.10 SERVER_PORT=1080 \
+     LISTEN_ADDR=192.0.2.10 LISTEN_PORT=1080 \
+     ./openwrt-nat-install.sh'
+```
+
+Remove it with `./openwrt-nat-remove.sh`, then re-enable socat with
+`/etc/init.d/s0cks5-forward enable && /etc/init.d/s0cks5-forward start`.
+
+On the reference bridged AP the DNAT'd packet is routed back out `br-lan` to
+the default gateway, but it still leaves through the `wan` port, so the
+`tc`/eBPF program sees the mutated leg. This is a hairpin NAT: it works here,
+but it is more sensitive to firewall/zone changes than the socat relay. The
+socat path remains the portable default.
 
 ## Test
 
