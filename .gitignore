@@ -1,0 +1,6 @@
+build/
+*.o
+*.pcap
+*.pyc
+__pycache__/
+server.log
