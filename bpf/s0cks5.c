@@ -8,12 +8,13 @@
  *
  *   client -> server      05 NN ...      ->   16 NN ...
  *   client -> server      05 01 00 ...   ->   16 01 00 ...
- *   server -> client      05 00 ...      ->   16 00 ...
- *                         05 REP 00 ...  ->   16 REP 00 ...
+ *   server -> client      16 00 ...      ->   05 00 ...
+ *                         16 REP 00 ...  ->   05 REP 00 ...
  *
- * Only the version byte of the first two control messages in each direction
- * is touched, and the rewrite is length preserving, so TCP sequence/ack
- * numbers never move.
+ * The server speaks the mutated format directly, so the return direction is
+ * a restore, not a mutation.  Only the version byte of the first two control
+ * messages in each direction is touched, and the rewrite is length
+ * preserving, so TCP sequence/ack numbers never move.
  */
 #include <linux/bpf.h>
 #include <linux/if_ether.h>
@@ -171,18 +172,18 @@ int s0cks5_mutate(struct __sk_buff *skb)
 		return TC_ACT_OK;
 	}
 
-	/* Server -> client: method selection (05 00) and reply (05 REP 00 ATYP). */
-	if (b[0] != 0x05)
+	/* Server -> client: method selection (16 00) and reply (16 REP 00 ATYP). */
+	if (b[0] != 0x16)
 		return TC_ACT_OK;
 	if (st->count >= 2 && tcp.seq != st->last_seq)
 		return TC_ACT_OK;
 
-	__u8 nb = 0x16;
+	__u8 nb = 0x05;
 	if (bpf_skb_store_bytes(skb, poff, &nb, sizeof(nb), 0) < 0)
 		return TC_ACT_OK;
 
-	__u16 old = bpf_ntohs((__u16)((0x05 << 8) | b[1]));
-	__u16 new = bpf_ntohs((__u16)((0x16 << 8) | b[1]));
+	__u16 old = bpf_ntohs((__u16)((0x16 << 8) | b[1]));
+	__u16 new = bpf_ntohs((__u16)((0x05 << 8) | b[1]));
 
 	bpf_l4_csum_replace(skb, l4off + __builtin_offsetof(struct tcphdr, check),
 			    old, new, 2);
