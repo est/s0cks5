@@ -112,6 +112,44 @@ Attach to the interface that actually carries the client traffic. On a
 bridge, that is the uplink slave port, not `br-lan`; forwarded frames bypass
 the bridge master's qdisc.
 
+## Make the router the SOCKS5 endpoint
+
+Clients can keep pointing at the VPS address, or they can point at the router
+and let it forward the connection. The latter makes the SOCKS5 service appear
+to live on OpenWrt:
+
+```sh
+scp scripts/openwrt-forward.init scripts/openwrt-forward-install.sh \
+    scripts/openwrt-forward-remove.sh "$ROUTER_USER@$ROUTER_IP:"
+ssh "$ROUTER_USER@$ROUTER_IP" \
+    'SERVER_IP=203.0.113.10 SERVER_PORT=1080 \
+     LISTEN_ADDR=192.0.2.10 LISTEN_PORT=1080 \
+     ./openwrt-forward-install.sh'
+```
+
+The installer writes `/etc/s0cks5-forward.conf`, installs
+`/etc/init.d/s0cks5-forward`, enables it at boot, and runs the equivalent of:
+
+```sh
+socat TCP-LISTEN:1080,bind=192.0.2.10,fork,reuseaddr \
+      TCP:203.0.113.10:1080
+```
+
+Clients then use the router as the proxy:
+
+```sh
+curl --socks5-hostname 192.0.2.10:1080 http://example.com/
+```
+
+The LAN leg is ordinary SOCKS5. The router → VPS leg is a fresh TCP
+connection, and that is the leg the eBPF on `wan` mutates. Keep `LISTEN_ADDR`
+on the LAN address: the forwarder has no authentication. Remove it with
+`./openwrt-forward-remove.sh`.
+
+This is a userspace relay, so throughput is bounded by the router's CPU. A
+kernel-only nftables DNAT/TPROXY setup is possible, but it is more
+configuration for the same lab result.
+
 ## Test
 
 Normal client, through the router:
