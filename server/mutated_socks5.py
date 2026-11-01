@@ -12,8 +12,9 @@ The companion tc/eBPF program on the router performs the same translation for
 unmodified SOCKS5 clients.  CONNECT only; there is no SOCKS authentication.
 
 Safety model:
-  * Source allowlist.  A non-loopback bind without --allow/--allow-file is
-    refused.  Non-allowlisted peers are reset before any SOCKS parsing.
+  * Optional source allowlist.  Without --allow/--allow-file every source is
+    accepted; use a firewall if the service is public.  With either option,
+    non-listed peers are reset before any SOCKS parsing.
   * Invalid, truncated or slow handshakes are reset with TCP RST and count
     toward a temporary per-IP ban.
   * Per-IP concurrency and connection-rate limits.
@@ -189,6 +190,7 @@ class AllowList:
 
     def __init__(self, cli_entries: list[str], path: str | None) -> None:
         self.path = path
+        self.enabled = bool(cli_entries or path)
         self.lock = threading.Lock()
         self.cli = self._parse(cli_entries, "command line")
         self.file: list[Network] = []
@@ -211,11 +213,6 @@ class AllowList:
             raise ValueError(f"cannot read allowlist {path}: {exc}") from exc
         return self._parse(lines, path)
 
-    def add(self, token: str) -> None:
-        net = parse_network(token, "command line")
-        with self.lock:
-            self.cli.append(net)
-
     def reload(self) -> None:
         if not self.path:
             return
@@ -233,6 +230,8 @@ class AllowList:
             LOG.warning("allowlist reloaded but empty; denying all new connections")
 
     def contains(self, addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+        if not self.enabled:
+            return True
         with self.lock:
             nets = self.cli + self.file
         return any(addr.version == net.version and addr in net for net in nets)
@@ -427,24 +426,11 @@ def handle_client(
 
 def serve(args: argparse.Namespace) -> int:
     family = socket.AF_INET6 if ":" in args.bind else socket.AF_INET
-    try:
-        loopback = ipaddress.ip_address(args.bind).is_loopback
-    except ValueError:
-        loopback = False
-
-    cli_entries = list(args.allow)
-    if not cli_entries and not args.allow_file and loopback:
-        cli_entries = ["127.0.0.0/8"] if family == socket.AF_INET else ["::1/128"]
-
-    allow = AllowList(cli_entries, args.allow_file)
-    if allow.empty():
-        if loopback:
-            allow.add("127.0.0.0/8" if family == socket.AF_INET else "::1/128")
-        else:
-            raise ValueError(
-                "refusing to start: non-loopback bind requires "
-                "--allow or --allow-file (fail closed)"
-            )
+    allow = AllowList(list(args.allow), args.allow_file)
+    if not allow.enabled:
+        LOG.warning("source allowlist disabled; all peers may use the proxy")
+    elif allow.empty():
+        LOG.warning("allowlist is empty; all peers will be denied")
 
     guard = Guard(
         allow,
@@ -459,12 +445,19 @@ def serve(args: argparse.Namespace) -> int:
     listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     listener.bind((args.bind, args.port))
     listener.listen(args.backlog)
-    LOG.info(
-        "mutated SOCKS5 listening on %s:%d (allowlist entries: %d)",
-        args.bind,
-        args.port,
-        allow.count(),
-    )
+    if allow.enabled:
+        LOG.info(
+            "mutated SOCKS5 listening on %s:%d (allowlist entries: %d)",
+            args.bind,
+            args.port,
+            allow.count(),
+        )
+    else:
+        LOG.warning(
+            "mutated SOCKS5 listening on %s:%d (source allowlist disabled)",
+            args.bind,
+            args.port,
+        )
 
     slots = threading.BoundedSemaphore(args.max_conns)
     stop = threading.Event()
@@ -537,12 +530,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         action="append",
         default=[],
         metavar="CIDR",
-        help="allow a source CIDR (repeatable or comma-separated)",
+        help="optional source allowlist CIDR (repeatable or comma-separated)",
     )
     parser.add_argument(
         "--allow-file",
         metavar="PATH",
-        help="file with one CIDR per line; SIGHUP reloads it",
+        help="optional allowlist file, one CIDR per line; SIGHUP reloads it",
     )
     parser.add_argument(
         "--allow-plain",

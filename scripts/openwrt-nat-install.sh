@@ -105,3 +105,4 @@ sleep 1
 
 echo "DNAT $LISTEN_ADDR:$LISTEN_PORT -> $SERVER_IP:$SERVER_PORT (kernel nat)"
 nft list table ip s0cks5nat
+echo "note: the eBPF object also matches $SERVER_IP:$SERVER_PORT; rebuild/re-attach if it changed"

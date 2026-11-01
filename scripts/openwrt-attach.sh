@@ -14,6 +14,7 @@ command -v tc >/dev/null 2>&1 || {
 	exit 1
 }
 
+# This replaces the clsact qdisc on DEV, so existing tc filters there are lost.
 # Idempotent: drop stale filters/qdisc first.
 tc qdisc del dev "$DEV" clsact 2>/dev/null || true
 tc qdisc add dev "$DEV" clsact

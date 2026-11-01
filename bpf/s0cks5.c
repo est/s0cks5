@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
+// SPDX-License-Identifier: GPL-2.0-only OR GPL-3.0-only
 /*
  * s0cks5 - a deliberately "incorrect" SOCKS5 handshake on the wire.
  *

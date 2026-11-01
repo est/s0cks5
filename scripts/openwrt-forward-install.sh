@@ -56,3 +56,4 @@ sleep 1
 
 echo "forwarding $LISTEN_ADDR:$LISTEN_PORT -> $SERVER_IP:$SERVER_PORT"
 netstat -ltn 2>/dev/null | grep -E "[:.]$LISTEN_PORT[[:space:]]" || true
+echo "note: the eBPF object also matches $SERVER_IP:$SERVER_PORT; rebuild/re-attach if it changed"

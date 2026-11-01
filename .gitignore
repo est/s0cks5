@@ -3,4 +3,7 @@ build/
 *.pcap
 *.pyc
 __pycache__/
-server.log
+*.log
+*.pid
+allow.txt
+captures/
