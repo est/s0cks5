@@ -115,8 +115,9 @@ the bridge master's qdisc.
 ## Make the router the SOCKS5 endpoint
 
 Clients can keep pointing at the VPS address, or they can point at the router
-and let it forward the connection. The latter makes the SOCKS5 service appear
-to live on OpenWrt:
+and let it forward the connection. Two implementations are included: a
+portable `socat` relay and a kernel-only DNAT rule. Both make the SOCKS5
+service appear to live on OpenWrt:
 
 ```sh
 scp scripts/openwrt-forward.init scripts/openwrt-forward-install.sh \
@@ -188,6 +189,10 @@ ssh "$ROUTER_USER@$ROUTER_IP" \
 
 Remove it with `./openwrt-nat-remove.sh`, then re-enable socat with
 `/etc/init.d/s0cks5-forward enable && /etc/init.d/s0cks5-forward start`.
+
+The rule sits in `prerouting`, so it covers LAN clients; a client running on
+the router itself should use the VPS address directly. NAT support comes from
+`kmod-nft-nat` (already present on the reference box).
 
 On the reference bridged AP the DNAT'd packet is routed back out `br-lan` to
 the default gateway, but it still leaves through the `wan` port, so the
